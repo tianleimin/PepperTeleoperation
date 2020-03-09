@@ -1,0 +1,499 @@
+#!/usr/bin/env python  
+# libray used
+import roslib
+roslib.load_manifest('kinect_pj')
+import rospy
+import tf
+import math
+import argparse
+import sys
+import qi
+import almath
+import numpy as np
+import datetime
+from naoqi import ALProxy
+import time
+
+import os
+import json
+import array
+import soundfile as sf
+import speech_recognition as sr
+import apiai
+
+
+import rosbag
+from std_msgs.msg import Int32, String, Float32
+
+import keyboard
+import curses
+import time
+
+
+import paramiko
+
+
+# store the gesture data into bag file
+def use_rosbag_to_store(bodypartName, bodypart_pitch, bodypart_row, bodypart_rot_0, bodypart_rot_2, index, bag):
+	# x
+	s = String()
+	s.data = bodypartName +'_pitch_'+ str(index)
+	i = Float32()
+	i.data = bodypart_pitch
+	bag.write('bodyPart', s)
+	bag.write('numbers', i)
+	# y
+ 	s = String()
+	s.data = bodypartName +'_row_'+ str(index)
+	i = Float32()
+	i.data = bodypart_row
+	bag.write('bodyPart', s)
+	bag.write('numbers', i)
+	# z
+	s = String()
+	s.data = bodypartName +'_rot_0_'+ str(index)
+	i = Float32()
+	i.data = bodypart_rot_0
+	bag.write('bodyPart', s)
+	bag.write('numbers', i)
+	# rot
+	s = String()
+	s.data = bodypartName +'_rot_2_'+ str(index)
+	i = Float32()
+	i.data = bodypart_rot_2
+	bag.write('bodyPart', s)
+	bag.write('numbers', i)
+
+
+
+# create the audio object for audio recording or speech recognition
+class DialogModule(object):
+    def __init__(self, app):
+        """
+        Initialise services and variables.
+        """
+        super(DialogModule, self).__init__()
+        app.start()
+        session = app.session
+
+        # Get the services
+        self.audio_service = session.service("ALAudioDevice")
+        self.tts_service = session.service("ALTextToSpeech")
+	self.audio_player_service = session.service("ALAudioPlayer")
+        
+        # initialize parameters
+        self.isProcessingDone = False
+        self.nbOfFramesToProcess = 120 # fixed length recording at the moment 60 for 5 second
+        self.framesCount=0
+        self.tmppath = ""
+        self.wavfile = self.tmppath + "recording.wav"
+        self.rawfile = self.tmppath + "rawrecording.raw"
+        self.rawoutput = open(self.rawfile,"wb+")
+        self.module_name = "DialogModule" 
+	self.recordingStartTime = 0    
+	self.speechrecoReply = ''   
+
+    # keep track of the frame counts
+    def processRemote(self, nbOfChannels, nbOfSamplesByChannel, timeStamp, inputBuffer):
+        # keep recording until reach the set frame number
+	#print nbOfChannels, nbOfSamplesByChannel, timeStamp, inputBuffer
+        self.framesCount = self.framesCount + 1
+        if (self.framesCount <= self.nbOfFramesToProcess):
+            self.rawoutput.write(inputBuffer)
+        else :
+            self.isProcessingDone=True
+            self.rawoutput.close()  
+                
+    # record wav and do Google ASR
+    def ASR(self):                
+        
+        # Google ASR
+        r = sr.Recognizer()
+        audiofile = sr.AudioFile(self.wavfile)
+
+        with audiofile as source:
+            r.adjust_for_ambient_noise(source)
+            audio = r.record(source)
+
+        try:
+		# google speech recognition back
+            asr = r.recognize_google(audio)
+            print "This is what Pepper thinks you said: " + asr
+        except sr.UnknownValueError:
+            asr = ""
+            print "Google Speech Recognition could not understand audio"
+        except sr.RequestError as e:
+            asr = ""
+            print "Could not request results from Google Speech Recognition service; {0}".format(e)
+            
+        return asr
+
+    # pass on asr transcript to Google DialogFlow and receive the response
+    def DialogFlow(self, asr):
+        # use your Dialog Flow API key here
+        CLIENT_ACCESS_TOKEN = 'b94dde37305b4e13b99cacb511dcf671'
+        ai = apiai.ApiAI(CLIENT_ACCESS_TOKEN)
+        request = ai.text_request()
+        request.lang = 'en'  # optional, default value equal 'en'
+        request.session_id = "1"
+        request.query = asr
+        
+        # receive response from DialogFlow
+        if asr == "":
+            reply = "Sorry, I didnt catch what you said. Can you say it again?"
+        else:
+            reply = asr
+        print "This is Pepper's answer to you: " + reply
+        
+        return reply
+    
+    # Pepper text-to-speech
+    def TTS(self, reply):
+        self.tts_service.setParameter("speed", 75)# set speech speed to 80%
+        self.tts_service.say(reply, _async=True) # text-to-speech
+
+    def resetParameters(self):
+	self.isProcessingDone = False
+	self.framesCount = 0
+	self.rawoutput = open(self.rawfile,"wb+")
+	self.recordingStartTime = 0
+
+    def audio_playback(self, audioFileName):
+	
+	self.audio_player_service.playFile(audioFileName, 1,0, _async=True)
+	# self.audio_player_service.loadFile(audioFileName)
+	# audio_player_service.playFile("/home/davidtw999/recording.wav", _async=True)
+
+
+
+# quaternion calculation for gesture
+def RotFromQua(quaternion1,quaternion2):
+# 0 position shows inverse amout of rotating, 1, 2, 3 shows x, y, z 
+	quat1 = almath.Quaternion(quaternion1[0],quaternion1[1],quaternion1[2],quaternion1[3]
+	quat2 = almath.Quaternion(quaternion2[0],quaternion2[1],quaternion2[2],quaternion2[3])
+	rpy1 = almath.Rotation3D.toVector(almath.rotation3DFromQuaternion(quat1))
+	rpy2 = almath.Rotation3D.toVector(almath.rotation3DFromQuaternion(quat2))
+	R_U1 = almath.rotationFrom3DRotation(rpy1[0],rpy1[1],rpy1[2])
+	R_U2 = almath.rotationFrom3DRotation(rpy2[0],rpy2[1],rpy2[2])
+	R_12 = almath.Rotation.transpose(R_U1)*R_U2
+# reture the rotation3D as a vector of float [wx, wy, wz]
+	rot = almath.Rotation3D.toVector(almath.rotation3DFromRotation(R_12))	
+	return rot
+
+
+
+# pepper robot gesture actions
+def rotate_action(shoulder_thetaL , shoulder_phaseL , elbow_thetaL, elbow_phaseL, shoulder_thetaR , shoulder_phaseR , elbow_thetaR, elbow_phaseR):
+	motion_service  = session.service("ALMotion")
+   	motion_service.setStiffnesses(["LArm","RArm"], 1.0)
+	names            = ["LShoulderPitch","LShoulderRoll","LElbowRoll","LElbowYaw","RShoulderPitch","RShoulderRoll","RElbowRoll","RElbowYaw"]
+	timelist = [0.7 for i in range(8)]	#speed control
+	angles           = [shoulder_thetaL , shoulder_phaseL , elbow_thetaL, elbow_phaseL,shoulder_thetaR , shoulder_phaseR , elbow_thetaR, elbow_phaseR]
+    	motion_service.angleInterpolation(names,angles,timelist,True)
+	
+
+# use for check the point are in the same plane or line, true means they are in same plane, false means they are not in same plane
+def diff_cal(x1, x2):
+	diff = (x1 - x2)*(x1 - x2)
+	if diff > 0.01:
+		return False
+	else:
+		return True
+
+# check the arms are in the straight position
+def armUpOrDown(xyz1, xyz2, xyz3, p1, p2):
+	x1 = xyz1[p1]
+	y1 = xyz1[p2]
+	x2 = xyz2[p1]
+	y2 = xyz2[p2]
+	x3 = xyz3[p1]
+	y3 = xyz3[p2]
+	count = 0
+	if diff_cal(x1, x2):
+		count = count + 1
+		print "x1, x2", p1, p2, "true"
+	if diff_cal(x1, x3):
+		count = count + 1
+		print "x1, x3",  p1, p2, "true"
+	if diff_cal(x2, x3):
+		count = count + 1
+		print "x2, x3",  p1, p2, "true"
+	if diff_cal(y1, y2):
+		count = count + 1
+		print "y1, y2",  p1, p2, "true"
+	if diff_cal(y1, y3):
+		count = count + 1
+		print "y1, y3",  p1, p2, "true"
+	if diff_cal(y2, y3):
+		count = count + 1
+		print "y2, y3",  p1, p2, "true"
+	print "count", count
+	if count >= 5:
+		return True
+	else:
+		return False
+
+
+# check the arms in upstraight or downstraight
+def arm_down(z1,z2,z3):
+	if (z1 > z2 and z2 > z3):
+		return True
+	elif (z1 < z2 and z2 < z3):
+		return False
+	return True
+
+
+# generate the rotation angles for pepper's arm by using the data from openni_tracker
+def should_elbow_rotation_figures(cameraPositionName, leftOrRightArm, duration, listener):
+	hand_trans, hand_rot = listener.lookupTransform( cameraPositionName , '/'+leftOrRightArm+'_hand_1' , duration)
+	shoulder_trans, shoulder_rot = listener.lookupTransform( cameraPositionName, '/'+leftOrRightArm+'_shoulder_1' ,duration )
+	elbow_trans, elbow_rot = listener.lookupTransform( cameraPositionName , '/'+leftOrRightArm+'_elbow_1' , duration)
+
+	hand_x = hand_trans[0]
+	hand_y = hand_trans[1]
+	hand_z = hand_trans[2]
+	shoulder_x = shoulder_trans[0]
+	shoulder_y = shoulder_trans[1]
+	shoulder_z = shoulder_trans[2]
+	elbow_x = elbow_trans[0]
+	elbow_y = elbow_trans[1]
+	elbow_z = elbow_trans[2]
+
+	yes = armUpOrDown(hand_trans, shoulder_trans, elbow_trans, 0, 1)
+	if yes:
+		if arm_down(shoulder_z , elbow_z, hand_z):
+			shoulder_pitch = 1.5709047317504883
+			shoulder_row = -0.055077001452445984
+		else:
+			shoulder_pitch = -1.5709047317504883
+			shoulder_row = -0.055077001452445984
+	else:
+		shoulder_pitch = math.atan2( -elbow_z + shoulder_z , -elbow_x + shoulder_x) 
+		shoulder_row = math.atan2( -elbow_y + shoulder_y , -elbow_x + shoulder_x)
+
+	rot = RotFromQua(shoulder_rot, elbow_rot)
+	return leftOrRightArm+'_shoulder', shoulder_pitch , shoulder_row , rot[0], -rot[2]
+
+
+
+# recording the transformed gesture data and voice data
+def start_recording(rospy, listener, max_recordingTime, MyDialogModule):
+	
+	MyDialogModule.resetParameters()
+	MyDialogModule.nbOfFramesToProcess = max_recordingTime * 12
+	print "The length of recording is about ", recording_time, " seconds."
+	print "You have 10 seconds to get ready in position once you press 'enter' key to start recording."
+	
+	keyFlag = raw_input("Press 'enter' key to start recording now!!!!")
+	
+	if (keyFlag == ''):
+		bag = rosbag.Bag('test.bag', 'w')
+		startPTime = time.time()
+		lastSecond = startPTime
+		diff = 0
+		waitingTime = 10
+		while (diff <= waitingTime and diff >= 0):
+			nowTime = time.time()
+			diff = waitingTime - round(nowTime-startPTime)
+			if (diff != lastSecond and diff >= 0):
+				lastSecond = diff
+				print "Start recording after ", diff, " seconds"
+
+		startRTime = time.time()
+		lastSecond = startRTime
+		diff = 0
+		index = 0
+
+		# ASR
+		greeting = "Recording now at " + str(MyDialogModule.nbOfFramesToProcess/12) + " seconds."
+		MyDialogModule.audio_service.setClientPreferences(MyDialogModule.module_name, 16000, 3, 0)
+        	MyDialogModule.audio_service.subscribe(MyDialogModule.module_name)  
+		
+	
+		while (not rospy.is_shutdown()) and (diff <= max_recordingTime) and MyDialogModule.isProcessingDone == False:
+			nowTime = time.time()
+			diff = round(nowTime - startRTime)
+			if (diff != lastSecond and diff <= max_recordingTime):
+				lastSecond = diff
+				print "Recording now at ", diff, " seconds"
+			
+			try:
+				cameraPositionName = '/openni_depth_frame'
+
+				head_trans,head_rot = listener.lookupTransform( cameraPositionName , '/head_1' , rospy.Duration() )
+				neck_trans,neck_rot = listener.lookupTransform( cameraPositionName , '/neck_1' , rospy.Duration() )
+				torso_trans,torso_rot = listener.lookupTransform( cameraPositionName , '/torso_1' , rospy.Duration() )
+				# add more lowerbody info if you need 
+
+				rightArm, right_pitch, right_row, right_rot_0, right_rot_2 = should_elbow_rotation_figures(cameraPositionName, 'left', rospy.Duration(), listener)
+				use_rosbag_to_store(rightArm, right_pitch, right_row, right_rot_0, right_rot_2, index, bag)
+
+				leftArm, left_pitch,left_row, left_rot_0, left_rot_2 = should_elbow_rotation_figures(cameraPositionName, 'right', rospy.Duration(), listener)
+				use_rosbag_to_store(leftArm, left_pitch,left_row, left_rot_0, left_rot_2, index, bag)
+			
+
+			except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+				continue
+			index = index + 1
+			rate.sleep()
+
+		bag.close()
+
+		# audio data processed into a file
+		MyDialogModule.audio_service.unsubscribe(MyDialogModule.module_name)
+		data, samplerate = sf.read(MyDialogModule.rawfile, channels=1, samplerate=16000, subtype='PCM_16')
+        	sf.write(MyDialogModule.wavfile, data, samplerate) 
+		
+		# speech recognition preprocessing
+		asr = MyDialogModule.ASR()
+		MyDialogModule.speechrecoReply = MyDialogModule.DialogFlow(asr)
+
+		print ".bag file are completed"	
+	else:
+		print("Wrong key, Program terminated")
+		exit(0)
+
+
+
+
+# use the stored gesture and audio data to recontruct the action played by Pepper
+def reConstructData(bodyPartName_li ,value_li, rate, MyDialogModule, audioFileName, option):
+	i = 0
+	if option == 1:
+		MyDialogModule.audio_playback(audioFileName)
+	elif option == 2:
+		print "option 2 here"
+		print MyDialogModule.speechrecoReply
+		MyDialogModule.TTS(MyDialogModule.speechrecoReply)
+
+	while (i <= (len(value_li) - 8) and not rospy.is_shutdown()):
+		shoulder_thetaR = value_li[i]
+		shoulder_phaseR = value_li[i+1]
+		elbow_thetaR = value_li[i+2]
+		elbow_phaseR = value_li[i+3]
+
+		shoulder_thetaL = value_li[i+4]
+		shoulder_phaseL = value_li[i+5]
+		elbow_thetaL = value_li[i+6]
+		elbow_phaseL = value_li[i+7]
+		
+		rotate_action(shoulder_thetaL , shoulder_phaseL , elbow_thetaL, elbow_phaseL, shoulder_thetaR , shoulder_phaseR , elbow_thetaR, elbow_phaseR)	
+		
+ 		i = i + 8
+		
+
+	# rotate_action reset
+	time.sleep(3)
+	print "Reset the body position"
+	shoulder_thetaL = shoulder_thetaR = 1.5709047317504883
+	shoulder_phaseL = shoulder_phaseR = -0.055077001452445984
+	elbow_thetaL = elbow_thetaR = 0
+	elbow_phaseL = elbow_phaseR = 0
+	rotate_action(shoulder_thetaL , shoulder_phaseL , elbow_thetaL, elbow_phaseL, shoulder_thetaR , shoulder_phaseR , elbow_thetaR, elbow_phaseR)	
+
+
+# read each record of the gesture and ask Pepper to copy it
+def simulate_playback(rate, MyDialogModule, audioFileName, option):
+
+	bodyPartName_li = []
+	value_li = []
+	simuTime = []
+	bag = rosbag.Bag('test.bag')
+	for topic, msg, t in bag.read_messages(topics=['bodyPart', 'numbers']):
+		
+		if topic == 'bodyPart':
+			bodyPartName_li.append(msg.data)
+		if topic == 'numbers':
+			value_li.append(msg.data)	
+		simuTime.append(t)
+	bag.close()
+
+	print bodyPartName_li,value_li,simuTime
+	
+	t0 = time.time()
+	print(t0)
+	reConstructData(bodyPartName_li,value_li, rate, MyDialogModule, audioFileName, option)
+	print time.time()-t0
+	
+
+# use ssh to connect pepper robot in order to copy the file into it
+def ssh_connect_to_pepper(ip):
+	client = paramiko.SSHClient()
+	client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+	client.connect(ip, username = 'nao', password = 'nao')
+	return client
+
+# use for transmit the audio file into pepper's harddrive
+def transfer_wav_to_pepper(client, localFileName, pepperFileName):
+	sftp = client.open_sftp()
+	sftp.put(localFileName, pepperFileName)
+	sftp.close()
+	print pepperFileName, ' saved on Pepper.'
+	return pepperFileName
+	
+
+# main program for pepper offline teleoperation 
+if __name__ == '__main__':
+	rospy.init_node( 'kinect_listener' , anonymous = True)
+	listener = tf.TransformListener()
+	# change the HZ rate for recording data
+	rate = rospy.Rate(1.2)
+	parser = argparse.ArgumentParser()
+    	parser.add_argument("--ip", type=str, default="127.0.0.1",
+                        help="Robot IP address. On robot or Local Naoqi: use '127.0.0.1'.")
+    	parser.add_argument("--port", type=int, default=34679,
+                        help="Naoqi port number")
+    	args = parser.parse_args()
+    	session = qi.Session()
+
+   	try:	
+		# gesture connection
+        	session.connect("tcp://" + args.ip + ":" + str(args.port))
+		# speech connection
+		connection_url = "tcp://" + args.ip + ":" + str(args.port)
+		app = qi.Application(["DialogModule", "--qi-url=" + connection_url]) 
+		clientSSH = ssh_connect_to_pepper(args.ip)
+
+    	except RuntimeError:
+        	print ("Can't connect to Naoqi at ip \"" + args.ip + "\" on port " + str(args.port) +".\n"
+               "Please check your script arguments. Run with -h option for help.")
+        	sys.exit(1)
+	
+	
+
+	MyDialogModule = DialogModule(app)
+	app.session.registerService("DialogModule", MyDialogModule)
+
+	# options for teleoperation offline
+	option = ''
+	audioFileName = '/home/nao/recordings/audio/111.wav'
+	while (option != 'q'):
+		
+		print "Press the keyborad button for the following options:"
+		print "Press '1' to start recording your gesture and speech."
+		print "Press '2' to simulate the body gesture and audio playback on Pepper."
+		print "Press '3' to simulate the body gesture and audio reconstructed on Pepper."
+		print "Press 'q' to quit the operation."
+		
+		option = raw_input("What would you like to choose?")
+			
+		# quit
+		if option == 'q':
+			exit(0)
+		# recording
+		elif option == '1':
+			recording_time = 30
+			start_recording(rospy, listener, recording_time, MyDialogModule)
+			audioFileName = transfer_wav_to_pepper(clientSSH, MyDialogModule.wavfile, audioFileName)
+		# let pepper copy the gesture and play the audio by using its speaker 
+		elif option == '2':
+			simulate_playback(rate, MyDialogModule, audioFileName, 1)
+		# let pepper copy the gesture and play the audio by its voice 
+		elif option == '3':
+			simulate_playback(rate, MyDialogModule, audioFileName, 2)
+		else:
+			print("Wrong option, press the button again.")
+
+
+
+

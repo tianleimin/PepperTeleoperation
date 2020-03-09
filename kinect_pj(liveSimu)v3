@@ -1,0 +1,171 @@
+#!/usr/bin/env python  
+import roslib
+roslib.load_manifest('kinect_pj')
+import rospy
+import tf
+import math
+import argparse
+import sys
+import qi
+import almath
+import numpy as np
+import datetime
+from naoqi import ALProxy
+import time
+
+
+
+
+# quaternion calculation for gesture
+def RotFromQua(quaternion1,quaternion2):
+# 0 position shows inverse amout of rotating, 1, 2, 3 shows x, y, z 
+	quat1 = almath.Quaternion(quaternion1[0],quaternion1[1],quaternion1[2],quaternion1[3])
+	quat2 = almath.Quaternion(quaternion2[0],quaternion2[1],quaternion2[2],quaternion2[3])
+	rpy1 = almath.Rotation3D.toVector(almath.rotation3DFromQuaternion(quat1))
+	rpy2 = almath.Rotation3D.toVector(almath.rotation3DFromQuaternion(quat2))
+	R_U1 = almath.rotationFrom3DRotation(rpy1[0],rpy1[1],rpy1[2])
+	R_U2 = almath.rotationFrom3DRotation(rpy2[0],rpy2[1],rpy2[2])
+	R_12 = almath.Rotation.transpose(R_U1)*R_U2
+# reture the rotation3D as a vector of float [wx, wy, wz]
+	rot = almath.Rotation3D.toVector(almath.rotation3DFromRotation(R_12))	
+	return rot
+
+
+
+# pepper robot gesture actions
+def rotate_action(shoulder_thetaL , shoulder_phaseL , elbow_thetaL, elbow_phaseL, shoulder_thetaR , shoulder_phaseR , elbow_thetaR, elbow_phaseR):
+	motion_service  = session.service("ALMotion")
+   	motion_service.setStiffnesses(["LArm","RArm"], 1.0)
+	names            = ["LShoulderPitch","LShoulderRoll","LElbowRoll","LElbowYaw","RShoulderPitch","RShoulderRoll","RElbowRoll","RElbowYaw"]
+	timelist = [0.7 for i in range(8)]	#speed control
+	angles           = [shoulder_thetaL , shoulder_phaseL , elbow_thetaL, elbow_phaseL,shoulder_thetaR , shoulder_phaseR , elbow_thetaR, elbow_phaseR]
+    	motion_service.angleInterpolation(names,angles,timelist,True)
+	
+
+# for debug use
+def print_out_xyz(part, x, y ,z):
+	print part
+	print "x: " , x
+	print "y: " , y
+	print "z: " , z
+	print datetime.datetime.now()
+
+
+# true means they are in same plane, false means they are not in same plane
+def diff_cal(x1, x2):
+	diff = (x1 - x2)*(x1 - x2)
+	if diff > 0.01:
+		return False
+	else:
+		return True
+
+# use for check the point are in the same plane or line, true means they are in same plane, false means they are not in same plane
+def armUpOrDown(xyz1, xyz2, xyz3, p1, p2):
+	x1 = xyz1[p1]
+	y1 = xyz1[p2]
+	x2 = xyz2[p1]
+	y2 = xyz2[p2]
+	x3 = xyz3[p1]
+	y3 = xyz3[p2]
+	count = 0
+	if diff_cal(x1, x2):
+		count = count + 1
+		print "x1, x2", p1, p2, "true"
+	if diff_cal(x1, x3):
+		count = count + 1
+		print "x1, x3",  p1, p2, "true"
+	if diff_cal(x2, x3):
+		count = count + 1
+		print "x2, x3",  p1, p2, "true"
+	if diff_cal(y1, y2):
+		count = count + 1
+		print "y1, y2",  p1, p2, "true"
+	if diff_cal(y1, y3):
+		count = count + 1
+		print "y1, y3",  p1, p2, "true"
+	if diff_cal(y2, y3):
+		count = count + 1
+		print "y2, y3",  p1, p2, "true"
+	print "count", count
+	if count >= 5:
+		return True
+	else:
+		return False
+
+
+# check the arms are in the straight position
+def arm_down(z1,z2,z3):
+	if (z1 > z2 and z2 > z3):
+		return True
+	elif (z1 < z2 and z2 < z3):
+		return False
+	return True
+
+
+
+# generate the rotation angles for pepper's arm by using the data from openni_tracker
+def should_elbow_rotation_figures(cameraPositionName, leftOrRightArm, duration, listener):
+	hand_trans, hand_rot = listener.lookupTransform( cameraPositionName , '/'+leftOrRightArm+'_hand_1' , duration)
+	shoulder_trans, shoulder_rot = listener.lookupTransform( cameraPositionName, '/'+leftOrRightArm+'_shoulder_1' ,duration )
+	elbow_trans, elbow_rot = listener.lookupTransform( cameraPositionName , '/'+leftOrRightArm+'_elbow_1' , duration)
+
+	hand_x = hand_trans[0]
+	hand_y = hand_trans[1]
+	hand_z = hand_trans[2]
+	shoulder_x = shoulder_trans[0]
+	shoulder_y = shoulder_trans[1]
+	shoulder_z = shoulder_trans[2]
+	elbow_x = elbow_trans[0]
+	elbow_y = elbow_trans[1]
+	elbow_z = elbow_trans[2]
+
+	yes = armUpOrDown(hand_trans, shoulder_trans, elbow_trans, 0, 1)
+	if yes:
+		if arm_down(shoulder_z , elbow_z, hand_z):
+			shoulder_pitch = 1.5709047317504883
+			shoulder_row = -0.055077001452445984
+		else:
+			shoulder_pitch = -1.5709047317504883
+			shoulder_row = -0.055077001452445984
+	else:
+		shoulder_pitch = math.atan2( -elbow_z + shoulder_z , -elbow_x + shoulder_x) 
+		shoulder_row = math.atan2( -elbow_y + shoulder_y , -elbow_x + shoulder_x)
+
+	rot = RotFromQua(shoulder_rot, elbow_rot)
+	return leftOrRightArm+'_shoulder', shoulder_pitch , shoulder_row , rot[0], -rot[2]
+
+
+# pepper will avoid the collision automaticlly.
+# main program for pepper live teleoperation 
+if __name__ == '__main__':
+	rospy.init_node( 'kinect_listener' , anonymous = True)
+	listener = tf.TransformListener()
+	rate = rospy.Rate(10.0)
+	parser = argparse.ArgumentParser()
+    	parser.add_argument("--ip", type=str, default="127.0.0.1",
+                        help="Robot IP address. On robot or Local Naoqi: use '127.0.0.1'.")
+    	parser.add_argument("--port", type=int, default=34679,
+                        help="Naoqi port number")
+    	args = parser.parse_args()
+    	session = qi.Session()
+   	try:
+        	session.connect("tcp://" + args.ip + ":" + str(args.port))
+    	except RuntimeError:
+        	print ("Can't connect to Naoqi at ip \"" + args.ip + "\" on port " + str(args.port) +".\n"
+               "Please check your script arguments. Run with -h option for help.")
+        	sys.exit(1)
+	
+	while not rospy.is_shutdown():
+		try:
+			
+			cameraPositionName = '/openni_depth_frame'
+			#right
+			rightArm, right_pitch, right_row, right_rot_0, right_rot_2 = should_elbow_rotation_figures(cameraPositionName, 'left', rospy.Duration(), listener)
+			#left
+			leftArm, left_pitch,left_row, left_rot_0, left_rot_2 = should_elbow_rotation_figures(cameraPositionName, 'right', rospy.Duration(), listener)
+			rotate_action(left_pitch , left_row , left_rot_0, left_rot_2, right_pitch , right_row , right_rot_0, right_rot_2)	
+
+		except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+			continue
+		rate.sleep()
+  
