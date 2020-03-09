@@ -131,7 +131,7 @@ class DialogModule(object):
     # pass on asr transcript to Google DialogFlow and receive the response
     def DialogFlow(self, asr):
         # use your Dialog Flow API key here
-        CLIENT_ACCESS_TOKEN = 'b94dde37305b4e13b99cacb511dcf671'
+        CLIENT_ACCESS_TOKEN = ''
         ai = apiai.ApiAI(CLIENT_ACCESS_TOKEN)
         request = ai.text_request()
         request.lang = 'en'  # optional, default value equal 'en'
@@ -420,7 +420,8 @@ def simulate_playback(rate, MyDialogModule, audioFileName, option):
 def ssh_connect_to_pepper(ip):
 	client = paramiko.SSHClient()
 	client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-	client.connect(ip, username = 'nao', password = 'nao')
+	# use your usename and password
+	client.connect(ip, username = '', password = '')
 	return client
 
 # use for transmit the audio file into pepper's harddrive
