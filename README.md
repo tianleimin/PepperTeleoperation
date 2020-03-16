@@ -30,7 +30,9 @@ git clone https://github.com/OpenNI/OpenNI.git
 
 cd OpenNI 
 
-git checkout Unstable-1.5.4.0 cd Platform/Linux/CreateRedist 
+git checkout Unstable-1.5.4.0 
+
+cd Platform/Linux/CreateRedist 
 
 chmod +x RedistMaker 
 
