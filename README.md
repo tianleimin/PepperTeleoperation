@@ -119,7 +119,9 @@ source setup.bash
 rosrun kinect_pj kinect_pj
 
 # 2.  Run the teleoperation command
-Rename these files into kinect_pj under the kinect_pj/src folder. Change the permission to executable by use chmod 777 filename
+kinect_pj(copyAndPlay)V3 for record-replay, kinect_pj(liveSimu)v3 for live simulation (gesture-only)
+Rename the chosen file to kinect_pj and move to the kinect_pj/src folder. 
+Change the file permission to executable (chmod 777 filename)
 
 open multiple terminal to run the commands below:
 
