@@ -24,9 +24,13 @@ sudo apt-get install doxygen graphviz mono-complete
 
 cd ~/ mkdir kinect
 
-cd ~/kinect git clone https://github.com/OpenNI/OpenNI.git 
+cd ~/kinect 
 
-cd OpenNI git checkout Unstable-1.5.4.0 cd Platform/Linux/CreateRedist 
+git clone https://github.com/OpenNI/OpenNI.git 
+
+cd OpenNI 
+
+git checkout Unstable-1.5.4.0 cd Platform/Linux/CreateRedist 
 
 chmod +x RedistMaker 
 
@@ -36,9 +40,13 @@ cd /yourpath/kinect/OpenNI/Platform/Linux/Redist/OpenNI-Bin-Dev-Linux-x64-v1.5.4
 
 sudo ./install.sh
 
-cd ~/kinect git clone https://github.com/avin2/SensorKinect 
+cd ~/kinect 
 
-cd SensorKinect cd Platform/Linux/CreateRedist 
+git clone https://github.com/avin2/SensorKinect 
+
+cd SensorKinect 
+
+cd Platform/Linux/CreateRedist 
 
 chmod +x RedistMaker 
 
@@ -56,7 +64,9 @@ sudo apt-get install ros-indigo-openni*
 
 ## Install NITE
 
-cd ~/kinect git clone https://github.com/arnaud-ramey/NITE-Bin-Dev-Linux-v1.5.2.23 
+cd ~/kinect 
+
+git clone https://github.com/arnaud-ramey/NITE-Bin-Dev-Linux-v1.5.2.23 
 
 cd /yourpath/kinect/NITE-Bin-Dev-Linux-v1.5.2.23/x64 
 
@@ -119,7 +129,11 @@ roslaunch openni_launch openni.launch
 
 rosrun openni_tracker openni_tracker
 
-#check the ip and port in choreograph tool for the virtual machine
+#manually change the option in 'Fixed Frame' under 'Global Options' to visualize Openni Tracker
+
+rosrun rviz rviz
+
+#check the ip and port in choreograph tool for the virtual machine, rename kinect_pj(copyAndPlay)V3 or kinect_pj(liveSimu)v3 into kinect_pj to determine which one to run
 
 rosrun kinect_pj kinect_pj --ip <ip> --port <port>
 
