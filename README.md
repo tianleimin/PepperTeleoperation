@@ -34,11 +34,11 @@ git checkout Unstable-1.5.4.0
 
 cd Platform/Linux/CreateRedist 
 
-chmod +x RedistMaker 
+sudo ./RedistMaker
 
-./RedistMaker
+cd ..
 
-cd /yourpath/kinect/OpenNI/Platform/Linux/Redist/OpenNI-Bin-Dev-Linux-x64-v1.5.4.0 
+cd /Redist/OpenNI-Bin-Dev-Linux-x64-v1.5.4.0 
 
 sudo ./install.sh
 
@@ -54,9 +54,9 @@ chmod +x RedistMaker
 
 ./RedistMaker
 
-cd /yourpath/kinect/SensorKinect/Platform/Linux/Redist/Sensor-Bin-Linux-x64-v5.1.2.1 
+cd ..
 
-chmod +x install.sh 
+cd /Redist/Sensor-Bin-Linux-x64-v5.1.2.1 
 
 sudo ./install.sh
 
@@ -70,7 +70,7 @@ cd ~/kinect
 
 git clone https://github.com/arnaud-ramey/NITE-Bin-Dev-Linux-v1.5.2.23 
 
-cd /yourpath/kinect/NITE-Bin-Dev-Linux-v1.5.2.23/x64 
+cd /NITE-Bin-Dev-Linux-v1.5.2.23/x64 
 
 sudo ./install.sh
 
@@ -82,7 +82,7 @@ git clone https://github.com/ros-drivers/openni_tracker.git
 
 ## Remake Catkin Workspace
 
-cd ~/catkin_ws 
+cd ~/catkin_ws/bin 
 
 catkin_make 
 
