@@ -155,7 +155,7 @@ rosrun rviz rviz
 
 #check the ip and port in choreograph tool for the virtual machine, rename kinect_pj(copyAndPlay)V3 or kinect_pj(liveSimu)v3 into kinect_pj to determine which one to run
 
-rosrun kinect_pj kinect_pj --ip <ip> --port <port>
+rosrun kinect_pj kinect_pj --ip \<ip> --port \<port>
 
 
 Reference:
