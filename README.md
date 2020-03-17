@@ -4,9 +4,11 @@ System requirement
 
   Ubuntu 14.04
   
-  ROS Indigo (##Install driver for ROS From ROS Wiki page(http://wiki.ros.org/openni_kinect))
+  ROS Indigo (##Install driver for ROS From ROS Wiki page (http://wiki.ros.org/openni_kinect))
   
   Openni
+  
+  Python and NAOqi (http://doc.aldebaran.com/2-5/dev/python/install_guide.html)
   
   Kinnect camera
   
@@ -102,7 +104,7 @@ catkin_make
 
 catkin_make install
 
-## launch openni and openni_tracker
+## launch openni and openni_tracker in different terminals
 
 roscore
 
