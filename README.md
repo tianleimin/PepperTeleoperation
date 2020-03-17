@@ -74,6 +74,20 @@ cd /NITE-Bin-Dev-Linux-v1.5.2.23/x64
 
 sudo ./install.sh
 
+## Install catkin and create a workspace for it
+
+sudo apt-get install ros-indigo-catkin
+
+mkdir -p ~/catkin_ws/src
+
+cd ~/catkin_ws
+
+source /opt/ros/indigo/setup.bash
+
+echo "source /opt/ros/indigo/setup.bash" >> ~/.bashrc
+
+source ~/.bashrc
+
 ## Install openni_tracker
 
 cd ~/catkin_ws/src 
