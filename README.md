@@ -1,4 +1,4 @@
-# pepperTeleoperation
+# PepperTeleoperation
 
 System requirement
 
